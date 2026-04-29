@@ -1,24 +1,11 @@
-<div align="center">
 
-# 📄 docs-rag
+# docs-rag
 
 **Production-grade Korean RAG pipeline for structured PDFs**
 
 *Hybrid Search · CRAG · Self-RAG · Critic-guided regeneration · 4-layer Guardrails · Honest SLA reporting*
 
-[![Python](https://img.shields.io/badge/Python-3.10-3776AB?logo=python&logoColor=white)]()
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-009688?logo=fastapi&logoColor=white)]()
-[![vLLM](https://img.shields.io/badge/vLLM-Qwen3--14B--AWQ-FF6F00)]()
-[![Qdrant](https://img.shields.io/badge/Qdrant-BGE--M3-DC382D?logo=qdrant&logoColor=white)]()
-[![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)]()
-
-[📓 프로젝트 근거 · 설계 결정 · 학술 레퍼런스](https://www.notion.so/DocsRAG-31b9fb2de50b80b59e04d05d8985ceca)
-
-</div>
-
----
-
-**Quick links** — [📊 Evaluation](#evaluation-snapshot) · [⚠️ Limitations](#검증되지-않은-영역-의도적-미구현) · [🚫 Anti-features](#의도적-미구현-anti-features) · [🎯 SLA](#sla-타겟-관측-해석-기준)
+[프로젝트 근거 · 설계 결정 · 학술 레퍼런스](https://www.notion.so/DocsRAG-31b9fb2de50b80b59e04d05d8985ceca)
 
 ---
 
