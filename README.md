@@ -3,7 +3,7 @@
 
 **Production-grade Korean RAG pipeline for structured PDFs**
 
-*Hybrid Search · CRAG · Self-RAG · Critic-guided regeneration · 4-layer Guardrails · Honest SLA reporting*
+*Hybrid Search · CRAG · Self-RAG · Critic-guided regeneration · PII/Injection Guards · Transparent evaluation*
 
 📓 [Notion - 설계 근거](https://www.notion.so/DocsRAG-31b9fb2de50b80b59e04d05d8985ceca)
 
