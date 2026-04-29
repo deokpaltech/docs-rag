@@ -1,0 +1,175 @@
+services:
+  postgres:
+    image: postgres:16.6
+    container_name: docs-rag-postgres
+    environment:
+      POSTGRES_DB: ai_parser
+      POSTGRES_USER: lawuser
+      POSTGRES_PASSWORD: "${PG_PASSWORD}"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+    restart: unless-stopped
+
+  qdrant:
+    # GPU 인덱싱 활성화 위해 GPU 빌드 이미지 사용 (Qdrant 1.13+).
+    image: qdrant/qdrant:v1.17.1-gpu-nvidia
+    container_name: docs-rag-qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+      - ./qdrant/config.yaml:/qdrant/config/production.yaml:ro
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["0"]
+              capabilities: [gpu]
+    restart: unless-stopped
+
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    container_name: docs-rag-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: "${RABBITMQ_USER}"
+      RABBITMQ_DEFAULT_PASS: "${RABBITMQ_PASS}"
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    restart: unless-stopped
+
+  vllm:
+    image: vllm/vllm-openai:v0.18.1
+    container_name: docs-rag-vllm
+    ipc: host
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./model/Qwen3-14B-AWQ:/model
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["0"]
+              capabilities: [gpu]
+    command: >
+      --model /model
+      --tensor-parallel-size 1
+      --max-model-len 8192
+      --gpu-memory-utilization 0.30
+      --kv-cache-dtype fp8_e4m3
+    restart: unless-stopped
+
+  paddle:
+    build: ./paddle
+    container_name: docs-rag-paddle
+    ports:
+      - "5003:5003"
+    volumes:
+      - ./data:/data
+      - paddle_cache:/root/.paddlex
+    environment:
+      # Why CPU mode: RTX PRO 6000 Blackwell(sm_120) 지원이 현재 paddlepaddle
+      # 공식 배포 wheel(3.3.1-cuda13.0)에 미포함. device_count()가 0으로 떨어지고
+      # set_device('gpu:0')가 "no GPU detected"로 실패.
+      # Paddle 3.4+ Blackwell 공식 지원이 나오면 CUDA_VISIBLE_DEVICES=0으로 복귀.
+      - CUDA_VISIBLE_DEVICES=-1
+      - FLAGS_use_mkldnn=0
+      - FLAGS_enable_pir_in_executor=0
+    restart: unless-stopped
+
+  odl:
+    build: ./odl
+    container_name: docs-rag-odl
+    ports:
+      - "5002:5002"
+    volumes:
+      - ./data:/data
+    restart: unless-stopped
+
+  api:
+    image: docs-rag-app
+    build: .
+    container_name: docs-rag-api
+    command: uvicorn api:app --host 0.0.0.0 --port 8002 --app-dir src
+    ports:
+      - "8002:8002"
+    env_file: .env
+    environment:
+      # Feedback 수집 토글 — 점진적 롤아웃 / 인프라 문제 시 즉시 비활성화 ("false")
+      FEEDBACK_ENABLED: "${FEEDBACK_ENABLED:-true}"
+      # Critic dispatch 토글. regenerate improved rate가 지속적으로 낮으면
+      # "false"로 바꿔 즉시 비활성화 (코드 변경·재배포 불필요)
+      CRITIC_DISPATCH_ENABLED: "${CRITIC_DISPATCH_ENABLED:-true}"
+    volumes:
+      - ./src:/app/src
+      - ./data:/app/data
+      - ./model:/app/model
+      - ./tests:/app/tests   # docker exec uv run pytest용 — host 변경 즉시 반영 (conftest.py 포함)
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["0"]
+              capabilities: [gpu]
+    depends_on:
+      - postgres
+      - qdrant
+      - rabbitmq
+      - odl
+      - vllm
+    restart: unless-stopped
+
+  celery:
+    image: docs-rag-app
+    container_name: docs-rag-celery
+    command: celery -A celery_app:celery_app worker --loglevel=info --pool=threads --concurrency=10 -E
+    working_dir: /app/src
+    env_file: .env
+    volumes:
+      - ./src:/app/src
+      - ./data:/app/data
+      - ./model:/app/model
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["0"]
+              capabilities: [gpu]
+    depends_on:
+      - postgres
+      - qdrant
+      - rabbitmq
+      - odl
+      - vllm
+    restart: unless-stopped
+
+  flower:
+    image: docs-rag-app
+    container_name: docs-rag-flower
+    command: celery -A celery_app:celery_app flower --port=5555
+    working_dir: /app/src
+    ports:
+      - "5555:5555"
+    env_file: .env
+    volumes:
+      - ./src:/app/src
+    depends_on:
+      - celery
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  qdrant_data:
+  rabbitmq_data:
+  paddle_cache:

@@ -1,0 +1,30 @@
+# 대용량 파일 (모델 가중치, 데이터)
+model/
+data/
+logs/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+*.egg-info/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Claude Code (개인 설정)
+.claude/
+
+# GSD
+.planning/
+
+# 환경변수 (실제 자격증명 — 절대 커밋 금지)
+.env
+.env.local
+.env.*.local

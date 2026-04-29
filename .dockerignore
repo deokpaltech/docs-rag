@@ -1,0 +1,27 @@
+# 빌드 컨텍스트 최소화 — Docker가 .git, 데이터, 모델 weight를 매번 전송하면
+# build 느려지고 image 크기 폭증.
+.git
+.gitignore
+.venv
+.claude
+.dockerignore
+
+# 대용량 자산 (volume·다운로드 스크립트로 따로 관리)
+data/
+model/
+logs/
+*.pdf
+*.bin
+*.safetensors
+
+# 개발·문서 (런타임에 불필요)
+docs/
+tests/
+*.md
+LICENSE
+
+# Python 캐시
+**/__pycache__/
+*.pyc
+*.pyo
+*.egg-info/

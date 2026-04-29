@@ -1,0 +1,338 @@
+"""DB Repository (SQLAlchemy ORM).
+
+각 테이블별 Repository 클래스. flush는 repository, commit은 호출자(task/endpoint)
+가 담당 — `delete_by_document` + `insert_chunks` 같은 다단 연산을 한 트랜잭션으로
+묶기 위한 규약. tb_document_status는 CQRS read model이라 update_status()만이
+log INSERT + status UPDATE 둘 다 처리.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime
+
+from sqlalchemy.orm import Session
+
+import logging
+
+from .models import DocumentStatus, DocumentStatusLog, DocumentExtract, DocumentChunk, DocumentContents, CodeMaster, QueryFeedback
+
+logger = logging.getLogger(__name__)
+
+
+# 문서 상태 (CQRS: log=원본, status=읽기용 스냅샷)
+class DocumentRepository:
+    """tb_document_status + tb_document_status_log 관리"""
+
+    def __init__(self, db: Session):
+        self.db = db
+
+    def create(self, service_code: str, document_id: str, document_name: str,
+               document_path: str = None) -> int:
+        # 읽기용 스냅샷 INSERT
+        doc = DocumentStatus(
+            service_code=service_code,
+            document_id=document_id,
+            document_name=document_name,
+            document_path=document_path,
+            status_code="00",
+        )
+        self.db.add(doc)
+        # 원본 로그 INSERT (최초 등록)
+        self.db.add(DocumentStatusLog(
+            service_code=service_code,
+            document_id=document_id,
+            from_status=None,
+            to_status="00",
+        ))
+        self.db.commit()
+        self.db.refresh(doc)
+        return doc.id
+
+    def get_by_id(self, service_code: str, document_id: str) -> dict | None:
+        row = self.db.query(
+            DocumentStatus, CodeMaster.code_name
+        ).outerjoin(
+            CodeMaster, DocumentStatus.status_code == CodeMaster.code
+        ).filter(
+            DocumentStatus.service_code == service_code,
+            DocumentStatus.document_id == document_id,
+        ).first()
+        if not row:
+            return None
+        doc, code_name = row
+        return {
+            "id": doc.id,
+            "service_code": doc.service_code,
+            "document_id": doc.document_id,
+            "document_name": doc.document_name,
+            "document_path": doc.document_path,
+            "status_code": doc.status_code,
+            "status_name": code_name,
+        }
+
+    def update_status(self, service_code: str, document_id: str, status_code: str) -> bool:
+        try:
+            # 현재 상태 조회 (log의 from_status용)
+            current = self.db.query(DocumentStatus).filter(
+                DocumentStatus.service_code == service_code,
+                DocumentStatus.document_id == document_id,
+            ).first()
+            from_status = current.status_code if current else None
+
+            # 1. 원본 로그 INSERT (append-only)
+            self.db.add(DocumentStatusLog(
+                service_code=service_code,
+                document_id=document_id,
+                from_status=from_status,
+                to_status=status_code,
+            ))
+
+            # 2. 현재 스냅샷 UPDATE (읽기용)
+            if current:
+                current.status_code = status_code
+                current.updated_at = datetime.now()
+            self.db.commit()
+            return True
+        except Exception as e:
+            self.db.rollback()
+            logger.error(f"상태 업데이트 실패: {e}")
+            return False
+
+
+# 추출 원본 보존
+class ExtractRepository:
+    """tb_document_extract 관리"""
+
+    def __init__(self, db: Session):
+        self.db = db
+
+    def upsert(self, service_code: str, document_id: str, document_name: str,
+               total_pages: int, raw_json: dict, raw_markdown: str,
+               document_path: str = None) -> int:
+        existing = self.db.query(DocumentExtract).filter(
+            DocumentExtract.service_code == service_code,
+            DocumentExtract.document_id == document_id,
+        ).first()
+
+        if existing:
+            existing.document_name = document_name
+            existing.document_path = document_path
+            existing.total_pages = total_pages
+            existing.raw_json = raw_json
+            existing.raw_markdown = raw_markdown
+            self.db.commit()
+            return existing.id
+
+        ext = DocumentExtract(
+            service_code=service_code,
+            document_id=document_id,
+            document_name=document_name,
+            document_path=document_path,
+            total_pages=total_pages,
+            raw_json=raw_json,
+            raw_markdown=raw_markdown,
+        )
+        self.db.add(ext)
+        self.db.commit()
+        self.db.refresh(ext)
+        return ext.id
+
+    def update_markdown(self, service_code: str, document_id: str, raw_markdown: str) -> None:
+        """OCR 처리 후 이미지 태그가 텍스트로 교체된 마크다운을 업데이트."""
+        row = self.db.query(DocumentExtract).filter(
+            DocumentExtract.service_code == service_code,
+            DocumentExtract.document_id == document_id,
+        ).first()
+        if row:
+            row.raw_markdown = raw_markdown
+            self.db.commit()
+
+    def get_markdown(self, service_code: str, document_id: str) -> str | None:
+        row = self.db.query(DocumentExtract.raw_markdown).filter(
+            DocumentExtract.service_code == service_code,
+            DocumentExtract.document_id == document_id,
+        ).first()
+        return row[0] if row else None
+
+
+# 청크
+class ChunkRepository:
+    """tb_document_chunks 관리"""
+
+    def __init__(self, db: Session):
+        self.db = db
+
+    def insert_chunks(self, chunks: list[dict]) -> tuple[int, list]:
+        if not chunks:
+            return 0, []
+        objs = [
+            DocumentChunk(
+                service_code=c["service_code"],
+                document_id=c["document_id"],
+                seq=c["seq"],
+                heading=c.get("heading"),
+                heading_path=c.get("heading_path"),
+                content=c["content"],
+                char_count=c.get("char_count"),
+                start_page=c.get("start_page"),
+                end_page=c.get("end_page"),
+                chunk_type=c.get("chunk_type", "text"),
+                chunk_strategy=c.get("chunk_strategy"),
+                part_index=c.get("part_index"),
+                part_total=c.get("part_total"),
+                image_paths=c.get("image_paths"),
+                image_ocr_texts=c.get("image_ocr_texts"),
+            )
+            for c in chunks
+        ]
+        self.db.add_all(objs)
+        self.db.flush()  # ID 채번만. commit은 호출자(task)가 담당.
+        for obj in objs:
+            self.db.refresh(obj)
+        return len(objs), objs
+
+    def get_by_document(self, service_code: str, document_id: str) -> list[dict]:
+        chunks = self.db.query(DocumentChunk).filter(
+            DocumentChunk.service_code == service_code,
+            DocumentChunk.document_id == document_id,
+        ).order_by(DocumentChunk.seq).all()
+        return [
+            {
+                "id": c.id,
+                "seq": c.seq,
+                "heading": c.heading,
+                "heading_path": c.heading_path,
+                "content": c.content,
+                "char_count": c.char_count,
+                "start_page": c.start_page,
+                "end_page": c.end_page,
+                "chunk_type": c.chunk_type or "text",
+                "chunk_strategy": c.chunk_strategy,
+                "part_index": c.part_index,
+                "part_total": c.part_total,
+                "image_paths": c.image_paths,
+                "image_ocr_texts": c.image_ocr_texts,
+            }
+            for c in chunks
+        ]
+
+    def delete_by_document(self, service_code: str, document_id: str) -> int:
+        count = self.db.query(DocumentChunk).filter(
+            DocumentChunk.service_code == service_code,
+            DocumentChunk.document_id == document_id,
+        ).delete()
+        # commit은 호출자(task)가 담당. delete + insert가 한 트랜잭션으로 묶임.
+        return count
+
+
+# 서빙용 콘텐츠
+class ContentsRepository:
+    """tb_document_contents 관리"""
+
+    def __init__(self, db: Session):
+        self.db = db
+
+    def insert_batch(self, rows: list[dict]) -> int:
+        if not rows:
+            return 0
+        objs = [
+            DocumentContents(
+                service_code=r["service_code"],
+                document_id=r["document_id"],
+                chunk_id=r["chunk_id"],
+                heading=r.get("heading"),
+                heading_path=r.get("heading_path"),
+                content=r.get("content"),
+                start_page=r.get("start_page"),
+                end_page=r.get("end_page"),
+                chunk_type=r.get("chunk_type", "text"),
+                chunk_strategy=r.get("chunk_strategy"),
+                part_index=r.get("part_index"),
+                part_total=r.get("part_total"),
+                image_paths=r.get("image_paths"),
+                image_ocr_texts=r.get("image_ocr_texts"),
+                qdrant_point_id=r.get("qdrant_point_id"),
+                token_count=r.get("token_count"),
+                char_count=r.get("char_count"),
+            )
+            for r in rows
+        ]
+        self.db.add_all(objs)
+        self.db.flush()  # commit은 호출자(task)가 담당.
+        return len(objs)
+
+    def get_by_qdrant_id(self, qdrant_point_id: int) -> dict | None:
+        row = self.db.query(DocumentContents).filter(
+            DocumentContents.qdrant_point_id == qdrant_point_id,
+        ).first()
+        if not row:
+            return None
+        return {
+            "id": row.id,
+            "service_code": row.service_code,
+            "document_id": row.document_id,
+            "chunk_id": row.chunk_id,
+            "heading": row.heading,
+            "heading_path": row.heading_path,
+            "content": row.content,
+            "start_page": row.start_page,
+            "end_page": row.end_page,
+            "chunk_type": row.chunk_type or "text",
+            "qdrant_point_id": row.qdrant_point_id,
+            "char_count": row.char_count,
+        }
+
+    def get_by_document(self, service_code: str, document_id: str) -> list[dict]:
+        rows = self.db.query(DocumentContents).filter(
+            DocumentContents.service_code == service_code,
+            DocumentContents.document_id == document_id,
+        ).order_by(DocumentContents.id).all()
+        return [
+            {
+                "id": r.id,
+                "chunk_id": r.chunk_id,
+                "heading": r.heading,
+                "content": r.content,
+                "start_page": r.start_page,
+                "end_page": r.end_page,
+                "qdrant_point_id": r.qdrant_point_id,
+                "char_count": r.char_count,
+            }
+            for r in rows
+        ]
+
+    def count_by_document(self, service_code: str, document_id: str) -> int:
+        return self.db.query(DocumentContents).filter(
+            DocumentContents.service_code == service_code,
+            DocumentContents.document_id == document_id,
+        ).count()
+
+    def delete_by_document(self, service_code: str, document_id: str) -> int:
+        count = self.db.query(DocumentContents).filter(
+            DocumentContents.service_code == service_code,
+            DocumentContents.document_id == document_id,
+        ).delete()
+        # commit은 호출자(task)가 담당.
+        return count
+
+
+class FeedbackRepository:
+    """tb_query_feedback 관리 (Insert-only).
+
+    flush는 repository, commit은 호출자(엔드포인트)가 담당 — '한 요청 = 한 트랜잭션' 규약 유지.
+    Update/Delete 메서드 의도적 부재 (Insert-only 설계).
+    """
+
+    def __init__(self, db: Session):
+        self.db = db
+
+    def insert(self, trace_id: str, signal: str, free_text: str | None = None) -> QueryFeedback:
+        fb = QueryFeedback(
+            trace_id=trace_id,
+            signal=signal,
+            free_text=free_text,
+        )
+        self.db.add(fb)
+        self.db.flush()    # id 채번
+        self.db.refresh(fb)  # created_at 채번 (server_default)
+        return fb

@@ -1,0 +1,19 @@
+storage:
+  # GPU 인덱싱: 세그먼트당 16GB 상한. 1024차원 INT8 기준 ~1500만 벡터/세그먼트.
+  # 현재 데이터 규모(<10만)에서는 한참 여유 있지만, 스케일업 대비 명시.
+  optimizers:
+    max_segment_size_kb: 15728640  # 15GB (16GB 상한 안전 여유)
+
+  # GPU 인덱싱 활성화. 기본은 false(CPU)라 명시적으로 켜야 GPU 사용.
+  gpu:
+    indexing: true
+    # GPU가 한 번에 처리할 포인트 수. 클수록 빠르지만 GPU 메모리 더 사용.
+    # 96GB GPU 기준 1024로 시작 → 모니터링 후 2048까지 상향 가능.
+    groups_count: 1024
+    # 동시 인덱싱 세그먼트 수. 메모리 여유 있을 때만 2 이상.
+    parallel_indexes: 1
+
+service:
+  # gRPC 활성화 (REST 대비 직렬화 2~3배 작음).
+  grpc_port: 6334
+  http_port: 6333
