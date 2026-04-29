@@ -1,6 +1,26 @@
-# docs-rag
+<div align="center">
+
+# 📄 docs-rag
+
+**Production-grade Korean RAG pipeline for structured PDFs**
+
+*Hybrid Search · CRAG · Self-RAG · Critic-guided regeneration · 4-layer Guardrails · Honest SLA reporting*
+
+[![Python](https://img.shields.io/badge/Python-3.10-3776AB?logo=python&logoColor=white)]()
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-009688?logo=fastapi&logoColor=white)]()
+[![vLLM](https://img.shields.io/badge/vLLM-Qwen3--14B--AWQ-FF6F00)]()
+[![Qdrant](https://img.shields.io/badge/Qdrant-BGE--M3-DC382D?logo=qdrant&logoColor=white)]()
+[![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)]()
 
 [📓 프로젝트 근거 · 설계 결정 · 학술 레퍼런스](https://www.notion.so/DocsRAG-31b9fb2de50b80b59e04d05d8985ceca)
+
+</div>
+
+---
+
+**Quick links** — [📊 Evaluation](#evaluation-snapshot) · [⚠️ Limitations](#검증되지-않은-영역-의도적-미구현) · [🚫 Anti-features](#의도적-미구현-anti-features) · [🎯 SLA](#sla-타겟-관측-해석-기준)
+
+---
 
 PDF 문서를 처리하는 범용 RAG 파이프라인 — 약관·법령·매뉴얼·제품 문서 등 한국어 구조화 문서에 공통 적용.
 PDF 등록 → 비동기 `extract → ocr → chunk → embed` → Qdrant 하이브리드 검색 → Adaptive 라우팅 → CRAG 루프 → 프롬프트 분기 → vLLM 답변 생성 → Self-RAG 검증 → 서빙 trace 기록.
