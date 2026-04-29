@@ -1,9 +1,8 @@
+# 📄 docs-rag
 
-# docs-rag
-
-**Production-grade Korean RAG pipeline for structured PDFs**
-
-📓 [Notion - 설계 근거](https://www.notion.so/DocsRAG-31b9fb2de50b80b59e04d05d8985ceca)
+> **Production-grade Korean RAG pipeline for structured PDFs**
+>
+> 📓 [Notion — 설계 근거](https://www.notion.so/DocsRAG-31b9fb2de50b80b59e04d05d8985ceca)
 
 ---
 
