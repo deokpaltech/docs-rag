@@ -5,7 +5,7 @@
 
 *Hybrid Search · CRAG · Self-RAG · Critic-guided regeneration · 4-layer Guardrails · Honest SLA reporting*
 
-[프로젝트 근거 · 설계 결정 · 학술 레퍼런스](https://www.notion.so/DocsRAG-31b9fb2de50b80b59e04d05d8985ceca)
+📓 [Notion - 설계 근거](https://www.notion.so/DocsRAG-31b9fb2de50b80b59e04d05d8985ceca)
 
 ---
 
