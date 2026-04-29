@@ -1,5 +1,16 @@
 # docs-rag
 
+> **Production-grade Korean RAG pipeline for structured PDFs** — Hybrid Search · CRAG · Self-RAG · Critic-guided regeneration · 4-layer Guardrails · Honest SLA reporting
+
+[![Python](https://img.shields.io/badge/python-3.10-blue)]() [![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-009688)]() [![vLLM](https://img.shields.io/badge/vLLM-Qwen3--14B--AWQ-orange)]() [![Qdrant](https://img.shields.io/badge/Qdrant-BGE--M3-red)]()
+
+📓 **프로젝트 근거 · 설계 결정 · 학술 레퍼런스**: [DocsRAG Notion](https://www.notion.so/DocsRAG-31b9fb2de50b80b59e04d05d8985ceca)
+
+## 목차
+- [Evaluation snapshot](#evaluation-snapshot) · [의도적 미구현](#의도적-미구현-anti-features) · [SLA 타겟](#sla-타겟-관측-해석-기준) · [확장 지점](#확장-지점-조건부-도입) · [기술 스택](#기술-스택)
+
+---
+
 PDF 문서를 처리하는 범용 RAG 파이프라인 — 약관·법령·매뉴얼·제품 문서 등 한국어 구조화 문서에 공통 적용.
 PDF 등록 → 비동기 `extract → ocr → chunk → embed` → Qdrant 하이브리드 검색 → Adaptive 라우팅 → CRAG 루프 → 프롬프트 분기 → vLLM 답변 생성 → Self-RAG 검증 → 서빙 trace 기록.
 
